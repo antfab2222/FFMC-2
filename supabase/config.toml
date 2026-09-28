@@ -1,0 +1,8 @@
+[functions.gmail-connect]
+# POST verifies the user JWT and coordinator role in the handler.
+# GET is a Google callback authenticated with expiring single-use OAuth state.
+verify_jwt = false
+
+[functions.mail-assistant]
+# Handler authenticates user JWT + coordinator role, or single-use scoped cron token.
+verify_jwt = false
