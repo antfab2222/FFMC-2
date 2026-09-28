@@ -1,0 +1,2 @@
+export const mailCategories=['Actualités','Ordres du jour','Comptes rendus','Newsletters','Vie du réseau','Administratif','Notifications et publicité','Correspondance'];
+export const mailTopics=['CT moto','Manifestations','Balades','Réunions et CA','Partenaires','Administratif','Actualités générales','Politique et réglementation','Circulation et infrastructures','Sécurité routière','Formations et JTI','Relais Motards Calmos','Solidarité','Vie associative','Services et notifications','Autre'];
