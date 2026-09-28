@@ -1,0 +1,18 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+const compiled=ts.transpileModule(readFileSync('supabase/functions/mail-assistant/content.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+const {textFromPart,normalizeMessage,validateAnalysis}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+const b64=s=>Buffer.from(s).toString('base64url');
+const plain={mimeType:'text/plain',body:{data:b64('Réunion prévue à Nice. À débattre.')}};
+const html={mimeType:'text/html',body:{data:b64('<style>.secret{}</style><p>Réunion &amp; débat</p><script>steal()</script><img src="https://evil.example/track">')}};
+assert.equal(textFromPart({mimeType:'multipart/alternative',parts:[plain,html]}),'Réunion prévue à Nice. À débattre.');
+assert.ok(!textFromPart(html).includes('steal'));assert.ok(!textFromPart(html).includes('https://'));assert.ok(textFromPart(html).includes('Réunion & débat'));
+assert.equal(textFromPart({...plain,filename:'confidentiel.txt'}),'');
+const message={id:'aabb0011',threadId:'ccdd0022',internalDate:'1790530000000',labelIds:['SENT'],payload:{...plain,headers:[{name:'Subject',value:'Réunion'},{name:'From',value:'FFMC <test@example.com>'}]}};
+assert.equal(normalizeMessage(message).direction,'envoyé');assert.equal(normalizeMessage(message).subject,'Réunion');
+assert.equal(normalizeMessage({...message,payload:{...plain,body:{data:b64('a'.repeat(31000))}}}).truncated,true);
+assert.throws(()=>normalizeMessage({...message,id:'../../bad'}));
+const a={topic:'Réunions et CA',priority:'Importante',actions:['À débattre'],summary:'Une proposition de réunion.',reason:'Décision du CA attendue.',discussion:'Choisir la date.',reply_draft:'',deadline:'2026-10-01',uncertainties:''};
+assert.deepEqual(validateAnalysis(a),a);assert.throws(()=>validateAnalysis({...a,deadline:'2026-02-31'}));assert.throws(()=>validateAnalysis({...a,actions:['Envoyer maintenant']}));assert.throws(()=>validateAnalysis({...a,priority:'urgent!!!'}));assert.ok(!('send' in validateAnalysis({...a,send:true})));
+console.log('PASS: UTF-8, MIME alternatives, HTML stripping, attachments excluded, truncation, Gmail IDs and structured analysis validation.');

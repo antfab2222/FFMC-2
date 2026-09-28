@@ -1,0 +1,30 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+let handler,member=true,userValid=true,enabled=true,token=null,saved=null;
+const hash=async s=>Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s))).toString('hex');
+const db={auth:{getUser:async()=>({data:{user:userValid?{id:'test-user'}:null},error:null})},from(table){let filters={},expiry;return {update(value){saved=value;return this},delete(){return this},select(){return this},eq(k,v){filters[k]=v;return this},gt(k,v){expiry=v;return this},async maybeSingle(){if(table==='ca_mail_messages')return {data:{id:filters.id}};if(table==='ca_mail_job_tokens'){if(token&&token.hash===filters.token_hash&&token.action===filters.action&&token.expires>expiry){token=null;return {data:{action:filters.action}};}return {data:null};}if(table==='ca_gmail_connections')return {data:{connected_by:'test-user',auto_enabled:enabled}};if(table==='ca_members')return {data:member?{user_id:'test-user'}:null};throw Error('Unexpected table '+table);}}}};
+const source=readFileSync('supabase/functions/mail-assistant/index.ts','utf8').replace(/^import .*;\n/gm,'');
+const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
+const Deno={env:{get:name=>({SUPABASE_URL:'https://test.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'test'}[name])},serve:fn=>{handler=fn}};
+new Function('Deno','createClient','GeminiError','categories','topics',js)(Deno,()=>db,class extends Error{},['Actualités'],['CT moto']);
+const req=(action='analyze',headers={})=>new Request('https://test.supabase.co/functions/v1/mail-assistant',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({action})});
+assert.equal((await handler(req())).status,401);
+userValid=false;assert.equal((await handler(req('analyze',{authorization:'Bearer bad'}))).status,401);
+userValid=true;member=false;assert.equal((await handler(req('analyze',{authorization:'Bearer member'}))).status,403);member=true;
+const raw='ab'.repeat(32),headers={'x-mail-job-token':raw};
+assert.equal((await handler(req('analyze',headers))).status,401);
+async function grant(action='analyze',expires=new Date(Date.now()+60000).toISOString()){token={hash:await hash(raw),action,expires};}
+await grant();assert.equal((await handler(req('schedule',headers))).status,401);
+await grant();assert.equal((await handler(req('file',headers))).status,401);
+await grant('sync');assert.equal((await handler(req('analyze',headers))).status,401);
+await grant('analyze',new Date(0).toISOString());assert.equal((await handler(req('analyze',headers))).status,401);
+await grant();let r=await handler(req('analyze',headers));assert.equal(r.status,200);assert.match((await r.json()).skipped,/désactivée/);assert.equal((await handler(req('analyze',headers))).status,401);
+await grant();enabled=false;r=await handler(req('analyze',headers));assert.equal(r.status,200);assert.match((await r.json()).skipped,/Automatisation/);
+enabled=true;member=false;await grant();assert.equal((await handler(req('analyze',headers))).status,403);
+console.log('PASS: anonymous/member/invalid JWT blocked; cron tokens scoped, expiring, single-use; disabled schedule and removed coordinator blocked.');
+
+const filing=()=>new Request('https://test.supabase.co/functions/v1/mail-assistant',{method:'POST',headers:{'Content-Type':'application/json',authorization:'Bearer test'},body:JSON.stringify({action:'file',id:'abcdef',category:'Actualités',topic:'CT moto'})});
+member=false;assert.equal((await handler(filing())).status,403);assert.equal(saved,null);
+member=true;assert.equal((await handler(filing())).status,200);assert.deepEqual(saved,{mail_category:'Actualités',mail_topic:'CT moto',filing_source:'manual'});
+console.log('PASS: manual filing restricted to coordinator and validated.');

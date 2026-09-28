@@ -1,0 +1,16 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+const compiled=ts.transpileModule(readFileSync('src/lib/gmail-reply.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+const {replyRecipient,replySubject,gmailComposeUrl,gmailThreadUrl}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+assert.equal(replyRecipient('Marie <marie@example.org>','reçu'),'marie@example.org');
+for(const [sender,direction] of [['marie@example.org','envoyé'],['coordinateur.ffmc06@gmail.com','reçu'],['a@example.org, b@example.org','reçu'],['a@example.org\r\nBcc: x@example.org','reçu']])assert.equal(replyRecipient(sender,direction),'');
+const body='Bonjour,\n\nDébat & réunion ? #oui + café 🏍️';
+const url=new URL(gmailComposeUrl('marie@example.org','Re: Réunion & CA',body));
+assert.equal(url.origin,'https://mail.google.com');assert.equal(url.searchParams.get('body'),body);assert.equal(url.searchParams.get('to'),'marie@example.org');assert.equal(url.searchParams.get('su'),'Re: Réunion & CA');assert.equal(url.searchParams.get('authuser'),'coordinateur.ffmc06@gmail.com');assert.equal(url.searchParams.has('bcc'),false);
+assert.equal(gmailComposeUrl('a@example.org&bcc=x@example.org','Sujet',body),null);
+assert.equal(gmailComposeUrl('a@example.org','Sujet','é'.repeat(10000)),null);
+assert.equal(gmailComposeUrl('a@example.org','Sujet','  '),null);
+assert.equal(replySubject('Réunion'),'Re: Réunion');assert.equal(replySubject('Re: Réunion'),'Re: Réunion');
+assert.ok(gmailThreadUrl('abc#?').endsWith('#all/abc%23%3F'));
+console.log('PASS: recipient validation, outgoing/self mail, URL encoding, account, long reply fallback and subject.');
